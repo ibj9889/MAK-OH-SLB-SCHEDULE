@@ -51,7 +51,8 @@ window.FS_CONFIG = {
 [hidden]{display:none!important}
 html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 .who{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-2)}
-.who input{width:110px}
+.who input{width:130px}
+.who input:placeholder-shown{border-color:var(--bad)}
 body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:14px;line-height:1.55;margin:0}
 .wrap{max-width:1400px;margin:0 auto;padding-block:20px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:16px}
 h1{font-size:22px;font-weight:600;margin:0;letter-spacing:-.01em;text-wrap:balance}
@@ -186,7 +187,7 @@ table.roster td.mono{font-size:12px}
       <button id="bCopy" type="button">요약 복사</button>
       <button id="bCsv" type="button">표 내려받기</button>
       <button id="bBackup" type="button">백업</button>
-      <label class="who" for="myName">내 이름 <input id="myName" placeholder="변경 기록용"></label>
+      <label class="who" for="myName">내 이름 <input id="myName" placeholder="입력해야 수정 가능"></label>
     </div>
   </header>
 
@@ -271,6 +272,7 @@ function setRO(v){canWrite=!v;$('#roNote').hidden=canWrite;['#bAddPerson','#bAdd
 function col(name){return {people:S.people,items:S.items,res:S.res,marks:S.marks}[name]}
 function save(cname,id,data,logText,before){
   if(!root||!canWrite)return;
+  if(!myName()){askName();render();return}
   const m=col(cname);const prev=before!==undefined?before:(m.has(id)?structuredClone(m.get(id)):null);
   m.set(id,data);render();
   undoStack.push({cname,id,prev});if(undoStack.length>30)undoStack.shift();$('#bUndo').hidden=false;
@@ -279,6 +281,7 @@ function save(cname,id,data,logText,before){
 }
 function remove(cname,id,logText){
   if(!root||!canWrite)return;
+  if(!myName()){askName();render();return}
   const m=col(cname);const prev=m.has(id)?structuredClone(m.get(id)):null;
   m.delete(id);render();
   undoStack.push({cname,id,prev});$('#bUndo').hidden=false;
@@ -286,6 +289,7 @@ function remove(cname,id,logText){
   if(logText)addLog(logText);
 }
 function undo(){
+  if(!myName()){askName(undo);return}
   const u=undoStack.pop();if(!u)return;
   const m=col(u.cname);
   if(u.prev){m.set(u.id,u.prev);queue(u.cname+'/'+u.id,()=>root.collection(u.cname).doc(u.id).set(u.prev))}
@@ -299,7 +303,7 @@ function addLog(text){
   S.log.unshift(e);renderLog();
   root.collection('log').add(e).catch(()=>{});
 }
-function saveSettings(){if(!root||!canWrite)return;const s=JSON.parse(JSON.stringify(S.settings));queue('meta/settings',()=>root.collection('meta').doc('settings').set(s))}
+function saveSettings(){if(!root||!canWrite)return;if(!myName()){askName();return}const s=JSON.parse(JSON.stringify(S.settings));queue('meta/settings',()=>root.collection('meta').doc('settings').set(s))}
 
 /* ---------- derived ---------- */
 const pName=id=>(S.people.get(id)||{}).name||'(삭제된 인원)';
@@ -500,14 +504,14 @@ function renderBoard(){
   });
   h+='</div>';
   sc.innerHTML=h;
-  sc.querySelector('.inner').classList.toggle('drag-on',dragOn&&canWrite);
+  sc.querySelector('.inner').classList.toggle('drag-on',dragOn&&editable());
   if(first){renderBoard.did=true;sc.scrollLeft=Math.max(0,X(TODAY)-ppd*14)}else sc.scrollLeft=keep;
 }
 function renderAlerts(){
   const A=computeAlerts(),dis=S.settings.dismissed;
   const vis=A.filter(a=>showHidden||!dis.includes(a.key)),hid=A.filter(a=>dis.includes(a.key)).length;
   $('#bShowHidden').hidden=!hid;$('#bShowHidden').textContent=showHidden?'숨긴 항목 가리기':'숨긴 항목 '+hid+'건 보기';
-  $('#alerts').innerHTML=vis.length?vis.map(a=>{const h=dis.includes(a.key);return `<li><span class="sev ${a.sev}">${{bad:'급함',warn:'확인',info:'참고'}[a.sev]}</span><div class="b"><a href="#" data-open="${a.open.join(':')}" style="color:inherit">${esc(a.text)}</a><small>${esc(a.sub||'')}</small></div>${canWrite?`<button class="ghost" type="button" data-dis="${esc(a.key)}">${h?'다시 보기':'숨기기'}</button>`:''}</li>`}).join(''):'<li class="muted">지금 확인할 항목이 없습니다.</li>';
+  $('#alerts').innerHTML=vis.length?vis.map(a=>{const h=dis.includes(a.key);return `<li><span class="sev ${a.sev}">${{bad:'급함',warn:'확인',info:'참고'}[a.sev]}</span><div class="b"><a href="#" data-open="${a.open.join(':')}" style="color:inherit">${esc(a.text)}</a><small>${esc(a.sub||'')}</small></div>${editable()?`<button class="ghost" type="button" data-dis="${esc(a.key)}">${h?'다시 보기':'숨기기'}</button>`:''}</li>`}).join(''):'<li class="muted">지금 확인할 항목이 없습니다.</li>';
 }
 function upcomingEvents(n){
   const ev=[],lim=TODAY+n;
@@ -536,14 +540,14 @@ function renderLog(){
   const L=S.log.slice(0,40);
   $('#log').innerHTML=L.length?L.map(e=>{const d=new Date(e.t);return `<li><span class="d">${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}</span><div class="b">${esc(e.text)}<small>${esc(e.who||'이름 없음')}</small></div></li>`}).join(''):'<li class="muted">아직 변경 기록이 없습니다.</li>';
 }
-function myName(){try{return localStorage.getItem('fs.name')||''}catch(e){return ''}}
+let _nm=null;function myName(){if(_nm===null){try{_nm=localStorage.getItem('fs.name')||''}catch(e){_nm=''}}return _nm}
 
 /* ---------- drag ---------- */
 const sc=$('#scroller');
 sc.addEventListener('pointerdown',e=>{
   const b=e.target.closest('.bar');if(!b)return;
   const id=b.dataset.id,it=S.items.get(id);if(!it)return;
-  const can=dragOn&&canWrite;
+  const can=dragOn&&editable();
   dragging={id,b,mode:can?(e.target.dataset.h||'m'):'none',x:e.clientX,s:d2n(it.start),e:d2n(it.end),dd:0,moved:false,pid:e.pointerId};
   if(can){b.setPointerCapture(e.pointerId);b.classList.add('dragging')}
 });
@@ -578,8 +582,21 @@ function openPanel(html,bind){panel.innerHTML=html;panel.hidden=false;scrim.hidd
 function closePanel(){panel.hidden=true;scrim.hidden=true;panel.innerHTML=''}
 scrim.onclick=closePanel;addEventListener('keydown',e=>{if(e.key==='Escape'&&!panel.hidden)closePanel()});
 const opt=(v,t,sel)=>`<option value="${esc(v)}" ${v===sel?'selected':''}>${esc(t)}</option>`;
-const dis=()=>canWrite?'':'disabled';
-function head(t){return `<div class="panel-h"><h2>${t}</h2><button type="button" class="ghost" data-close>닫기</button></div>${canWrite?'':'<p class="ro-note">보기 전용입니다.</p>'}`}
+const dis=()=>editable()?'':'disabled';
+function editable(){return canWrite&&!!myName()}
+function head(t){return `<div class="panel-h"><h2>${t}</h2><button type="button" class="ghost" data-close>닫기</button></div>${!canWrite?'<p class="ro-note">보기 전용입니다.</p>':!myName()?'<p class="ro-note">이름을 입력해야 수정할 수 있습니다. 화면 오른쪽 위 내 이름 칸에 먼저 이름을 넣어 주세요.</p>':''}`}
+function askName(next){
+  openPanel(head('이름 입력').replace(/<p class="ro-note">.*?<\/p>/,'')+`<form novalidate>
+    <p class="muted" style="margin:0">수정한 내용은 변경 기록에 이름과 함께 남습니다. 이름을 입력해야 수정할 수 있고, 한 번 넣으면 이 브라우저에 저장됩니다.</p>
+    <label class="fld">이름<input id="askNm" autocomplete="name" placeholder="홍길동"></label><p class="err" id="ferr" hidden></p>
+    <div class="btnrow"><button class="primary" type="submit">확인</button></div></form>`,p=>{
+    p.querySelector('[data-close]').onclick=closePanel;
+    p.querySelector('form').onsubmit=e=>{e.preventDefault();const v=p.querySelector('#askNm').value.trim();
+      if(!v){const er=p.querySelector('#ferr');er.textContent='이름을 넣어 주세요.';er.hidden=false;return}
+      setName(v);closePanel();next&&next()}});
+}
+function setName(v){try{localStorage.setItem('fs.name',v)}catch(x){}$('#myName').value=v;_nm=v;render()}
+const needName=fn=>(...a)=>{if(canWrite&&!myName())return askName(()=>fn(...a));return fn(...a)};
 function delBtn(){return `<button type="button" class="danger" data-del>삭제</button>`}
 function armDelete(p,fn){const b=p.querySelector('[data-del]');if(!b)return;b.onclick=()=>{if(b.dataset.arm){fn();closePanel()}else{b.dataset.arm=1;b.textContent='한 번 더 누르면 삭제';setTimeout(()=>{if(b.isConnected){delete b.dataset.arm;b.textContent='삭제'}},3500)}}}
 
@@ -605,13 +622,13 @@ function openItem(id,preset){
     if(k==='lodging'){
       f+=`<div class="fld">거주 인원 <span class="muted">(입실일, 퇴실일. 비우면 계약 기간 전체)</span></div><div id="occ" style="display:flex;flex-direction:column;gap:6px">`+
       (it.occ||[]).map((o,i)=>`<div class="occ"><select data-oi="${i}" data-of="pid" ${dis()}>${people.map(([pid,p])=>opt(pid,p.name,o.pid)).join('')}</select><input type="date" data-oi="${i}" data-of="from" value="${esc(o.from||'')}" ${dis()}><input type="date" data-oi="${i}" data-of="to" value="${esc(o.to||'')}" ${dis()}><button type="button" class="ghost" data-orm="${i}" aria-label="빼기" ${dis()}>✕</button></div>`).join('')+
-      `</div>${canWrite?'<button type="button" data-oadd>+ 거주 인원 추가</button>':''}`;
+      `</div>${editable()?'<button type="button" data-oadd>+ 거주 인원 추가</button>':''}`;
       const cap=+(S.res.get(it.resId)||{}).cap||0;if(cap)f+=`<p class="muted" style="margin:0">이 숙소 정원 ${cap}명. 같은 날 정원을 넘으면 확인 필요에 표시됩니다.</p>`;
     }
     f+=`<label class="fld">표시 문구 <span class="muted">(비우면 자동)</span><input name="label" value="${esc(it.label||'')}" placeholder="${esc(label(Object.assign({},it,{label:''})))}" ${dis()}></label>
       <label class="fld">메모<textarea name="note" rows="3" ${dis()}>${esc(it.note||'')}</textarea></label><p class="err" id="ferr" hidden></p>`;
     f+=`<datalist id="locList">${locs().map(l=>`<option value="${esc(l)}">`).join('')}</datalist>`;
-    if(canWrite)f+=`<div class="btnrow"><button class="primary" type="submit">${isNew?'추가':'저장'}</button>${!isNew&&isCon(it)?'<button type="button" data-next>다음 1달 연장 추가</button>':''}${!isNew?'<button type="button" data-dup>복제</button>':''}${!isNew?delBtn():''}</div>`;
+    if(editable())f+=`<div class="btnrow"><button class="primary" type="submit">${isNew?'추가':'저장'}</button>${!isNew&&isCon(it)?'<button type="button" data-next>다음 1달 연장 추가</button>':''}${!isNew?'<button type="button" data-dup>복제</button>':''}${!isNew?delBtn():''}</div>`;
     openPanel(head((isNew?'새 ':'')+KIND[k])+`<form novalidate>${f}</form>`,bind);
   };
   const read=p=>{const fd=new FormData(p.querySelector('form'));
@@ -635,7 +652,7 @@ function openItem(id,preset){
       const nid=uid();save('items',nid,n,`${rName(it.resId)} ${md(s)}~${md(e)} 연장 계약 추가`);openItem(nid)};
     const dp=p.querySelector('[data-dup]');if(dp)dp.onclick=()=>{read(p);const n=structuredClone(it);const nid=uid();save('items',nid,n,`${descr(n)} 복제`);openItem(nid)};
     armDelete(p,()=>remove('items',id,`${descr(it)} ${md(it.start)}~${md(it.end)} 삭제`));
-    p.querySelector('form').onsubmit=ev=>{ev.preventDefault();if(!canWrite)return;read(p);
+    p.querySelector('form').onsubmit=ev=>{ev.preventDefault();if(!editable())return;read(p);
       const er=p.querySelector('#ferr');const bad=m=>{er.textContent=m;er.hidden=false};
       if(!it.start||!it.end)return bad('시작일과 종료일을 넣어 주세요.');
       if(d2n(it.end)<=d2n(it.start))return bad('종료일은 시작일보다 뒤여야 합니다.');
@@ -658,7 +675,7 @@ function openPerson(id){
     <label class="fld">메모 <span class="muted">(직급, 연락처, 담당 등)</span><textarea name="note" rows="3" ${dis()}>${esc(p.note||'')}</textarea></label>
     ${ts.length?`<div class="fld">출장 일정<div class="btnrow">${ts.map(([tid,t])=>`<button type="button" data-trip="${tid}">${esc(t.loc)} ${md(t.start)}~${md(t.end)}</button>`).join('')}</div></div>`:''}
     <p class="err" id="ferr" hidden></p>
-    ${canWrite?`<div class="btnrow"><button class="primary" type="submit">${isNew?'추가':'저장'}</button>${!isNew?'<button type="button" data-addtrip>+ 이 사람 일정</button>'+delBtn():''}</div>`:''}
+    ${editable()?`<div class="btnrow"><button class="primary" type="submit">${isNew?'추가':'저장'}</button>${!isNew?'<button type="button" data-addtrip>+ 이 사람 일정</button>'+delBtn():''}</div>`:''}
   </form>`,pp=>{
     pp.querySelector('[data-close]').onclick=closePanel;
     pp.querySelectorAll('[data-trip]').forEach(b=>b.onclick=()=>openItem(b.dataset.trip));
@@ -680,7 +697,7 @@ function openRes(id){
     <label class="fld">메모 <span class="muted">(업체, 주소, 연락처, 계약 조건)</span><textarea name="note" rows="4" ${dis()}>${esc(r.note||'')}</textarea></label>
     <datalist id="locList2">${locs().map(l=>`<option value="${esc(l)}">`).join('')}</datalist>
     <p class="err" id="ferr" hidden></p>
-    ${canWrite?`<div class="btnrow"><button class="primary" type="submit">${isNew?'추가':'저장'}</button>${!isNew?`<button type="button" data-addcon>+ 계약 기간</button>`+delBtn():''}</div>`:''}
+    ${editable()?`<div class="btnrow"><button class="primary" type="submit">${isNew?'추가':'저장'}</button>${!isNew?`<button type="button" data-addcon>+ 계약 기간</button>`+delBtn():''}</div>`:''}
     ${n?`<p class="muted">계약 ${n}건이 연결되어 있습니다. 삭제하면 함께 지워집니다.</p>`:''}
   </form>`,pp=>{
     pp.querySelector('[data-close]').onclick=closePanel;
@@ -701,7 +718,7 @@ function openMark(id){
     <label class="fld">메모<textarea name="note" rows="3" ${dis()}>${esc(m.note||'')}</textarea></label>
     <datalist id="locList3">${locs().map(l=>`<option value="${esc(l)}">`).join('')}</datalist>
     <p class="err" id="ferr" hidden></p>
-    ${canWrite?`<div class="btnrow"><button class="primary" type="submit">${isNew?'추가':'저장'}</button>${!isNew?delBtn():''}</div>`:''}
+    ${editable()?`<div class="btnrow"><button class="primary" type="submit">${isNew?'추가':'저장'}</button>${!isNew?delBtn():''}</div>`:''}
   </form>`,pp=>{
     pp.querySelector('[data-close]').onclick=closePanel;
     armDelete(pp,()=>remove('marks',id,`기준일 ${m.label} 삭제`));
@@ -720,9 +737,9 @@ function openRules(){
       <label class="fld">최초 최대<input type="number" min="0" step="1" data-ri="${i}" data-rf="first" value="${esc(r.first)}" ${dis()}></label>
       <label class="fld">재입국 간격<input type="number" min="0" step="1" data-ri="${i}" data-rf="gap" value="${esc(r.gap)}" ${dis()}></label>
       <label class="fld">재입국 최대<input type="number" min="0" step="1" data-ri="${i}" data-rf="next" value="${esc(r.next)}" ${dis()}></label>
-      ${canWrite?`<button type="button" class="ghost" data-rrm="${i}" aria-label="규칙 빼기">✕</button>`:'<span></span>'}</div>`).join('')}</div>
+      ${editable()?`<button type="button" class="ghost" data-rrm="${i}" aria-label="규칙 빼기">✕</button>`:'<span></span>'}</div>`).join('')}</div>
     <p class="muted" style="margin:0">단위는 모두 일입니다. 재입국 간격은 직전 출국일부터 다음 입국일까지 비어 있어야 하는 일수입니다.</p>
-    ${canWrite?'<div class="btnrow"><button class="primary" type="submit">저장</button><button type="button" data-radd>+ 지역 규칙</button></div>':''}
+    ${editable()?'<div class="btnrow"><button class="primary" type="submit">저장</button><button type="button" data-radd>+ 지역 규칙</button></div>':''}
   </form>`,p=>{
     p.querySelector('[data-close]').onclick=closePanel;
     const rd=()=>p.querySelectorAll('[data-ri]').forEach(el=>{const r=R[+el.dataset.ri];r[el.dataset.rf]=el.dataset.rf==='loc'?el.value.trim():Math.max(0,parseInt(el.value,10)||0)});
@@ -740,10 +757,10 @@ document.addEventListener('click',e=>{
   if(d){const k=d.dataset.dis,a=S.settings.dismissed;const i=a.indexOf(k);if(i>=0)a.splice(i,1);else a.push(k);
     if(a.length>300)a.splice(0,a.length-300);saveSettings();render()}
 });
-$('#bAddPerson').onclick=()=>openPerson();
-$('#bAddTrip').onclick=()=>openItem(null,{kind:'trip',pid:[...S.people.keys()][0]});
-$('#bAddRes').onclick=()=>openRes();
-$('#bAddMark').onclick=()=>openMark();
+$('#bAddPerson').onclick=needName(()=>openPerson());
+$('#bAddTrip').onclick=needName(()=>openItem(null,{kind:'trip',pid:[...S.people.keys()][0]}));
+$('#bAddRes').onclick=needName(()=>openRes());
+$('#bAddMark').onclick=needName(()=>openMark());
 $('#bUndo').onclick=undo;
 $('#bShowHidden').onclick=()=>{showHidden=!showHidden;renderAlerts()};
 $('#zoom').oninput=e=>{const c=sc.scrollLeft+sc.clientWidth/2-LABW(),day=c/ppd;ppd=+e.target.value;try{localStorage.setItem('fs.zoom',ppd)}catch(x){}renderBoard();sc.scrollLeft=day*ppd-sc.clientWidth/2+LABW()};
@@ -802,11 +819,16 @@ $('#bBackup').onclick=()=>openPanel(head('백업과 복원')+`<form novalidate>
   p.querySelector('[data-close]').onclick=closePanel;
   p.querySelector('[data-exp]').onclick=()=>saveFile('현장일정_백업_'+n2d(TODAY)+'.json',JSON.stringify(backupObj(),null,1),'application/json');
   p.querySelector('form').onsubmit=async e=>{e.preventDefault();const er=p.querySelector('#ferr');const f=p.querySelector('#impFile').files[0];
-    if(!f){er.textContent='복원할 백업 파일을 먼저 고르세요.';er.hidden=false;return}
-    try{const o=JSON.parse(await f.text());if(!o.people||!o.items)throw 0;const n=await importObj(o,p.querySelector('#impWipe').checked);addLog('백업 파일 '+f.name+' 로 복원 ('+n+'건)');closePanel();toast('복원했습니다')}
-    catch(x){er.textContent=x&&x.code?'저장소에 쓰지 못했습니다: '+x.code:'백업 파일 형식이 아닙니다.';er.hidden=false}};
+    const bad=m=>{er.textContent=m;er.hidden=false};
+    if(!myName())return bad('오른쪽 위 내 이름 칸에 이름을 먼저 입력해야 복원할 수 있습니다.');
+    if(!root)return bad('아직 일정판이 없습니다. 이 창을 닫고 가운데의 새 일정판 만들기를 먼저 누른 뒤 다시 복원하세요.');
+    if(!f)return bad('복원할 백업 파일을 먼저 고르세요.');
+    let o;try{o=JSON.parse(await f.text())}catch(x){return bad('파일을 읽지 못했습니다. 이 화면에서 받은 백업 파일(.json)인지 확인하세요.')}
+    if(!o||!o.people||!o.items)return bad('백업 파일 형식이 아닙니다. 이 화면에서 받은 백업 파일인지 확인하세요.');
+    try{const n=await importObj(o,p.querySelector('#impWipe').checked);addLog('백업 파일 '+f.name+' 로 복원 ('+n+'건)');closePanel();toast('복원했습니다')}
+    catch(x){bad(x&&x.code==='permission-denied'?'저장이 거부되었습니다. Firebase 규칙이 게시되어 있는지 확인하세요.':'저장소에 쓰지 못했습니다 ('+((x&&(x.code||x.message))||'알 수 없는 오류')+'). 인터넷 연결과 index.html 맨 위 설정값을 확인하세요.')}};
 });
-$('#myName').value=myName();$('#myName').onchange=e=>{try{localStorage.setItem('fs.name',e.target.value.trim())}catch(x){}};
+$('#myName').value=myName();$('#myName').onchange=e=>setName(e.target.value.trim());
 
 /* ---------- boot ---------- */
 function boardId(){const h=location.hash.replace('#','');return /^b[a-z0-9]{19,}$/.test(h)?h:''}
