@@ -133,6 +133,15 @@ input,select,textarea{background:var(--panel);border:1px solid var(--line-2);bor
 .cov.ok{background:var(--ok-bg);color:var(--ok)}
 .cov.short{background:var(--bad-bg);color:var(--bad)}
 .cov.ign{background:var(--warn-bg);color:var(--warn)}
+.cov.neu{background:var(--neutral-bg);color:var(--ink-2)}
+.shf{position:absolute;bottom:0;height:4px;pointer-events:none}
+.shf.d{background:var(--warn)}.shf.n{background:var(--need)}
+.sw.shd{background:var(--warn);height:4px}.sw.shn{background:var(--need);height:4px}
+.lab .sub2{font-size:12px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.shrow{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:6px;align-items:center}
+.reqgrid{display:grid;grid-template-columns:auto repeat(2,minmax(0,1fr));gap:6px 8px;align-items:center;font-size:12px;color:var(--ink-2)}
+.reqgrid input{width:100%}
+.stat .n b{font-weight:600;color:var(--ink)}
 .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:16px;align-items:start}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;min-width:0;display:flex;flex-direction:column;gap:10px}
 .card-h{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
@@ -151,6 +160,7 @@ table.roster{width:100%;border-collapse:collapse;font-size:13px}
 table.roster th{text-align:left;font-weight:500;color:var(--ink-2);font-size:12px;padding:4px 6px;border-bottom:1px solid var(--line)}
 table.roster td{padding:6px;border-bottom:1px solid var(--line);vertical-align:top}
 table.roster td.mono{font-size:12px}
+table.roster td:nth-child(2){white-space:nowrap}
 .tbl{overflow-x:auto}
 .empty{padding:28px 16px;text-align:center;color:var(--ink-2)}
 #panel{position:fixed;top:0;right:0;bottom:0;width:min(440px,100%);background:var(--panel);border-left:1px solid var(--line-2);z-index:30;overflow-y:auto;padding:calc(16px + env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) calc(24px + env(safe-area-inset-bottom,0px)) 16px;box-shadow:-8px 0 24px rgba(0,0,0,.12)}
@@ -201,6 +211,7 @@ table.roster td.mono{font-size:12px}
       <div class="tools">
         <label class="zoom" for="zoom">확대 <input id="zoom" type="range" min="3" max="28" step="1" value="7"></label>
         <select id="fLoc" aria-label="지역 보기"><option value="">전체 지역</option></select>
+        <select id="fGrp" aria-label="팀 보기"><option value="">전체 팀</option><option value="SW">SW</option><option value="CS">CS (+HW)</option></select>
         <button id="bToday" type="button">오늘로</button>
         <button id="bDrag" type="button"></button>
       </div>
@@ -250,11 +261,11 @@ const ST={trip:['확정','미확정'],con:['기존 계약','예약 완료','추�
 const KIND={trip:'출장',lodging:'숙소 계약',car:'렌트카 계약',need:'현장 요구 인원'};
 
 const S={people:new Map(),items:new Map(),res:new Map(),marks:new Map(),settings:{dismissed:[]},log:[],ready:{}};
-let db=null,root=null,canWrite=true,ppd=7,locFilter='',dragOn=matchMedia('(pointer:fine)').matches,showHidden=false;
+let grpFilter='',db=null,root=null,canWrite=true,ppd=7,locFilter='',dragOn=matchMedia('(pointer:fine)').matches,showHidden=false;
 let dragging=null,pendingRender=false,undoStack=[];
 const LABW=()=>innerWidth<640?104:150;
 
-try{const z=localStorage.getItem('fs.zoom');if(z)ppd=+z;const lf=localStorage.getItem('fs.loc');if(lf)locFilter=lf;const dg=localStorage.getItem('fs.drag');if(dg)dragOn=dg==='1'}catch(e){}
+try{const z=localStorage.getItem('fs.zoom');if(z)ppd=+z;const lf=localStorage.getItem('fs.loc');if(lf)locFilter=lf;const dg=localStorage.getItem('fs.drag');const fg=localStorage.getItem('fs.grp');if(fg)grpFilter=fg;if(dg)dragOn=dg==='1'}catch(e){}
 $('#zoom').value=ppd;
 
 function toast(m){const t=$('#toast');t.textContent=m;t.hidden=false;clearTimeout(toast._t);toast._t=setTimeout(()=>t.hidden=true,3200)}
@@ -314,10 +325,22 @@ function locs(){const s=new Set();S.items.forEach(it=>{const l=itemLoc(it);if(l)
 function locClass(l){return l==='오하이오'?'ohio':l==='애리조나'?'az':'other'}
 function trips(){return [...S.items.entries()].filter(([,i])=>i.kind==='trip')}
 function onSite(loc,day){const out=[];trips().forEach(([,t])=>{if(t.loc===loc&&d2n(t.start)<=day&&day<d2n(t.end))out.push(t)});return out}
+const GROUPS=[['SW','SW'],['CS','CS (+HW)']];
+const GNAME={SW:'SW',CS:'CS (+HW)',ETC:'기타',ALL:'전체'};
+const teamGroup=t=>t==='SW'?'SW':(t==='CS'||t==='HW')?'CS':'ETC';
+function groupOf(t){return teamGroup(t.role||(S.people.get(t.pid)||{}).team||'기타')}
+function personGroups(pid){const g=new Set([teamGroup((S.people.get(pid)||{}).team||'기타')]);trips().forEach(([,t])=>{if(t.pid===pid)g.add(groupOf(t))});return g}
+function shiftList(t){return (t.shifts||[]).filter(x=>x&&x.from).slice().sort((a,b)=>d2n(a.from)-d2n(b.from))}
+function shiftOn(t,day){let cur='';shiftList(t).forEach(x=>{if(d2n(x.from)<=day)cur=x.s||''});return cur||'미정'}
+function shiftText(t){const L=shiftList(t).filter(x=>x.s);if(!L.length)return '근무조 미정';
+  if(L.length===1&&d2n(L[0].from)<=d2n(t.start))return L[0].s;
+  return L.map((x,i)=>(i===0&&d2n(x.from)<=d2n(t.start)?'':md(x.from)+'~ ')+x.s).join(', ')}
+function countAt(loc,day,grp,sh){return onSite(loc,day).filter(t=>(grp==='ALL'||groupOf(t)===grp)&&(sh==='ALL'||shiftOn(t,day)===sh))}
+const REQKEYS=[['ALL','주간'],['ALL','야간'],['SW','주간'],['SW','야간'],['CS','주간'],['CS','야간']];
 function occRange(it,o){return [d2n(o.from||it.start),d2n(o.to||it.end)]}
 function label(it){
   if(it.label)return it.label;
-  if(it.kind==='trip')return (it.loc||'')+' '+md(it.start)+'~'+md(it.end);
+  if(it.kind==='trip'){const L=shiftList(it).filter(x=>x.s&&x.s!=='미정');const tag=L.length===1&&d2n(L[0].from)<=d2n(it.start)?' '+L[0].s:L.length>1?' 주야 변경':'';return (it.loc||'')+' '+md(it.start)+'~'+md(it.end)+tag}
   if(it.kind==='lodging')return (it.occ||[]).map(o=>pName(o.pid)).join(' ')||'거주 인원 미정';
   if(it.kind==='car')return it.status||'';
   if(it.kind==='need')return '요구 '+(it.total||0)+'명';
@@ -363,6 +386,12 @@ function computeAlerts(){
       const s=d2n(it.start),e=d2n(it.end),short=[];
       for(let d=Math.max(s,TODAY);d<e;d++){if(onSite(it.loc,d).length<(+it.total||0))short.push(d)}
       ranges(short).forEach(r=>A.push({key:'cov:'+id+':'+n2d(r[0]),sev:'bad',day:r[0],text:it.loc+' '+rtxt(r)+' 현장 인원 부족 (요구 '+it.total+'명)',sub:it.label||'현장 요구 인원',open:['items',id]}));
+      REQKEYS.forEach(([g,sh])=>{const need=+((it.req||{})[g+':'+sh])||0;if(!need)return;const sh2=[];
+        for(let d=Math.max(s,TODAY);d<e;d++){if(countAt(it.loc,d,g,sh).length<need)sh2.push(d)}
+        ranges(sh2).forEach(r=>A.push({key:'covg:'+id+':'+g+sh+':'+n2d(r[0]),sev:'bad',day:r[0],text:it.loc+' '+rtxt(r)+' '+(g==='ALL'?'':GNAME[g]+' ')+sh+' 인원 부족 (요구 '+need+'명)',sub:it.label||'현장 요구 인원',open:['items',id]}))});
+      const und={};
+      for(let d=Math.max(s,TODAY);d<e;d++)trips().forEach(([tid,t])=>{if(t.loc===it.loc&&d2n(t.start)<=d&&d<d2n(t.end)&&shiftOn(t,d)==='미정')(und[tid]=und[tid]||[]).push(d)});
+      Object.entries(und).forEach(([tid,ds])=>{const t=S.items.get(tid);ranges(ds).forEach(r=>A.push({key:'shift:'+tid+':'+n2d(r[0]),sev:'info',day:r[0],text:pName(t.pid)+' '+rtxt(r)+' 근무조 미정',sub:'일정을 눌러 주간이나 야간을 정해 주세요',open:['items',tid]}))});
     }
     if(isCon(it)){
       const s=d2n(it.start),e=d2n(it.end);
@@ -403,13 +432,20 @@ function renderFilter(){
   if(locFilter&&!L.includes(locFilter))locFilter='';
   $('#bDrag').textContent='끌어서 수정 '+(dragOn?'켜짐':'꺼짐');
   $('#bDrag').hidden=!canWrite;
-  $('#legend').innerHTML=[['st-ohio','오하이오'],['st-az','애리조나'],['st-exist','기존 계약'],['st-booked','예약 완료'],['st-req','추가 요청'],['st-review','검토'],['st-need','현장 요구']].map(([c,t])=>`<span><i class="sw ${c}"></i>${t}</span>`).join('')+'<span><i class="sw" style="border-left:2px solid var(--mark);width:6px"></i>기준일</span>';
+  $('#legend').innerHTML=[['st-ohio','오하이오'],['st-az','애리조나'],['st-exist','기존 계약'],['st-booked','예약 완료'],['st-req','추가 요청'],['st-review','검토'],['st-need','현장 요구']].map(([c,t])=>`<span><i class="sw ${c}"></i>${t}</span>`).join('')+'<span><i class="sw shd"></i>주간</span><span><i class="sw shn"></i>야간</span><span><i class="sw" style="border-left:2px solid var(--mark);width:6px"></i>기준일</span>';
+  $('#fGrp').value=grpFilter;
 }
 function renderStats(){
   const L=locs(),A=computeAlerts().filter(a=>!S.settings.dismissed.includes(a.key));
   let h='';
-  L.forEach(l=>{const p=onSite(l,TODAY);if(!p.length&&!trips().some(([,t])=>t.loc===l&&d2n(t.end)>TODAY))return;
-    h+=`<div class="stat"><div class="k">오늘 ${esc(l)} 현장</div><div class="v">${p.length}명</div><div class="n">${p.map(t=>esc(pName(t.pid))).join(', ')||'없음'}</div></div>`});
+  L.filter(l=>!locFilter||l===locFilter).forEach(l=>{const p=onSite(l,TODAY);if(!p.length&&!trips().some(([,t])=>t.loc===l&&d2n(t.end)>TODAY))return;
+    if(!p.length){h+=`<div class="stat"><div class="k">오늘 ${esc(l)} 현장</div><div class="v">0명</div><div class="n">다음 도착 ${(()=>{const n=trips().map(([,t])=>t).filter(t=>t.loc===l&&d2n(t.start)>TODAY).sort((a,b)=>d2n(a.start)-d2n(b.start))[0];return n?esc(pName(n.pid))+' '+md(n.start):'없음'})()}</div></div>`;return}
+    const gs=GROUPS.filter(([g])=>!grpFilter||g===grpFilter).map(([g])=>g);
+    if(p.some(t=>groupOf(t)==='ETC')&&!grpFilter)gs.push('ETC');
+    gs.forEach(g=>{const q=p.filter(t=>groupOf(t)===g);
+      const by=sh=>q.filter(t=>shiftOn(t,TODAY)===sh).map(t=>esc(pName(t.pid))).join(', ');
+      const line=['주간','야간','미정'].map(sh=>{const v=by(sh);return v?`<b>${sh}</b> ${v}`:''}).filter(Boolean).join('<br>');
+      h+=`<div class="stat"><div class="k">오늘 ${esc(l)} ${GNAME[g]}</div><div class="v">${q.length}명</div><div class="n">${line||'없음'}</div></div>`})});
   const soon=upcomingEvents(21).length;
   h+=`<div class="stat ${A.some(a=>a.sev==='bad')?'alert':''}"><div class="k">확인 필요</div><div class="v">${A.length}건</div><div class="n">${A.filter(a=>a.sev==='bad').length}건은 급함</div></div>`;
   h+=`<div class="stat"><div class="k">앞으로 3주 변동</div><div class="v">${soon}건</div><div class="n">입출국, 계약 시작과 종료, 기준일</div></div>`;
@@ -457,7 +493,9 @@ function renderBoard(){
     const v=SC[id]&&SC[id].msgs.length?SC[id]:null;
     const t=label(it),title=`${KIND[it.kind]||''} ${md(it.start)}~${md(it.end)} ${t}${it.status?' ('+it.status+')':''}${v?'\n체류 규칙: '+v.msgs.join(' / '):''}${it.note?'\n'+it.note:''}`;
     const over=v&&v.days>v.limit&&v.limit?`<span class="over" style="left:${v.limit*ppd}px"></span>`:'';
-    return `<div class="bar ${statusClass(it)} ${wrap?'wrap':''} ${v?'viol':''}" tabindex="0" role="button" data-id="${id}" style="left:${X(s)}px;width:${Math.max((e-s)*ppd,6)}px;top:${top}px;height:${hgt}px" title="${esc(title)}" aria-label="${esc(title)}">${over}<span class="h l" data-h="l"></span>${v?'<span class="vflag">규칙 위반</span>':''}<span class="t">${esc(t)}</span><span class="h r" data-h="r"></span></div>`;
+    let shf='';
+    if(it.kind==='trip'){const L=shiftList(it);L.forEach((x,i)=>{if(!x.s||x.s==='미정')return;const a=Math.max(d2n(x.from),s),b=Math.min(i+1<L.length?d2n(L[i+1].from):e,e);if(b>a)shf+=`<span class="shf ${x.s==='야간'?'n':'d'}" style="left:${(a-s)*ppd}px;width:${(b-a)*ppd}px"></span>`})}
+    return `<div class="bar ${statusClass(it)} ${wrap?'wrap':''} ${v?'viol':''}" tabindex="0" role="button" data-id="${id}" style="left:${X(s)}px;width:${Math.max((e-s)*ppd,6)}px;top:${top}px;height:${hgt}px" title="${esc(title+(it.kind==='trip'?'\n근무조: '+shiftText(it):''))}" aria-label="${esc(title)}">${over}${shf}<span class="h l" data-h="l"></span>${v?'<span class="vflag">규칙 위반</span>':''}<span class="t">${esc(t)}</span><span class="h r" data-h="r"></span></div>`;
   };
   const row=(labHtml,inner,height)=>`<div class="row"><div class="lab">${labHtml}</div><div class="track" style="width:${W}px;height:${height}px">${inner}</div></div>`;
   const sec=t=>`<div class="row sec"><div class="lab">${t}</div><div class="track" style="width:${W}px;height:26px"></div></div>`;
@@ -466,12 +504,19 @@ function renderBoard(){
   if(!people.length&&!S.items.size){sc.innerHTML=`<div class="empty">아직 등록된 일정이 없습니다. 위의 + 인원으로 사람부터 추가하세요.</div>`;return}
   let teamPrev=null;
   h+=sec('출장 인원');
-  people.forEach(([pid,p])=>{
-    const ts=trips().filter(([,t])=>t.pid===pid&&inLoc(t.loc));
-    if(locFilter&&!ts.length)return;
-    let inner=ts.map(([id,t])=>bar(id,t,5,24)).join('');
-    if(!ts.length)inner=`<span class="muted" style="position:absolute;left:8px;top:7px;font-size:12px">일정 없음</span>`;
-    h+=row(`<span class="chip">${esc(p.team||'기타')}</span><span class="nm" data-open="people:${pid}">${esc(p.name)}</span>`,inner,34);
+  [['SW','SW'],['CS','CS (+HW)'],['ETC','기타']].forEach(([g,gt])=>{
+    if(grpFilter&&g!==grpFilter)return;
+    const list=people.filter(([pid,p])=>{const home=teamGroup(p.team||'기타');const ts=trips().filter(([,t])=>t.pid===pid&&inLoc(t.loc));
+      if(locFilter&&!ts.length)return false;
+      return grpFilter?personGroups(pid).has(g):home===g});
+    if(!list.length)return;
+    h+=`<div class="row sec"><div class="lab" style="padding-left:16px">${gt}</div><div class="track" style="width:${W}px;height:22px"></div></div>`;
+    list.forEach(([pid,p])=>{
+      const ts=trips().filter(([,t])=>t.pid===pid&&inLoc(t.loc));
+      let inner=ts.map(([id,t])=>bar(id,t,5,24)).join('');
+      if(!ts.length)inner=`<span class="muted" style="position:absolute;left:8px;top:7px;font-size:12px">일정 없음</span>`;
+      h+=row(`<span class="chip">${esc(p.team||'기타')}</span><span class="nm" data-open="people:${pid}">${esc(p.name)}</span>`,inner,34);
+    });
   });
   // needs + coverage
   const needs=[...S.items.entries()].filter(([,i])=>i.kind==='need'&&inLoc(i.loc));
@@ -489,6 +534,18 @@ function renderBoard(){
         cv+=`<div class="cov ${cls}" style="left:${X(d)}px;width:${ppd}px" title="${md(n2d(d))} 현장 ${c}명 / 요구 ${need}명">${ppd>=14?c:''}</div>`;
       }
       h+=row(`<span class="nm">${esc(l)} 현장 인원</span>`,cv,30);
+      const keys=REQKEYS.filter(([g])=>grpFilter?g===grpFilter:true);
+      keys.forEach(([g,sh])=>{
+        let c2='';
+        for(let d=lo;d<hi;d++){
+          const n=ns.find(([,x])=>d2n(x.start)<=d&&d<d2n(x.end));if(!n)continue;
+          const who=countAt(l,d,g,sh),c=who.length,need=+((n[1].req||{})[g+':'+sh])||0;
+          const key='covg:'+n[0]+':'+g+sh+':';const ign=need&&c<need&&S.settings.dismissed.some(k=>k.startsWith(key)&&d2n(k.slice(key.length))<=d);
+          const cls=!need?'neu':c>=need?'ok':ign?'ign':'short';
+          c2+=`<div class="cov ${cls}" style="left:${X(d)}px;width:${ppd}px" title="${md(n2d(d))} ${g==='ALL'?'':GNAME[g]+' '}${sh} ${c}명${need?' / 요구 '+need+'명':''}${c?'\n'+who.map(t=>pName(t.pid)).join(', '):''}">${ppd>=14?c:''}</div>`;
+        }
+        h+=row(`<span class="sub2">${g==='ALL'?'전체':GNAME[g]} ${sh}</span>`,c2,24);
+      });
     });
   }
   // resources
@@ -530,10 +587,10 @@ function renderUpcoming(){
   $('#upcoming').innerHTML=ev.length?ev.map(e=>{const dt=new Date(e.d*DAY);return `<li><span class="d">${dt.getUTCMonth()+1}/${dt.getUTCDate()} (${WD[dt.getUTCDay()]})</span><div class="b"><a href="#" data-open="${e.o.join(':')}" style="color:inherit">${esc(e.t)}</a>${e.s?`<small>${esc(e.s)}</small>`:''}</div></li>`}).join(''):'<li class="muted">3주 안에 예정된 변동이 없습니다.</li>';
 }
 function renderRoster(){
-  const ps=[...S.people.entries()].sort((a,b)=>(TEAMS.indexOf(a[1].team)+9)%9-(TEAMS.indexOf(b[1].team)+9)%9||(a[1].order||0)-(b[1].order||0));
-  $('#roster').innerHTML='<thead><tr><th>팀</th><th>이름</th><th>출장 일정</th><th>메모</th></tr></thead><tbody>'+(ps.map(([pid,p])=>{
+  const ps=[...S.people.entries()].filter(([pid])=>!grpFilter||personGroups(pid).has(grpFilter)).sort((a,b)=>(TEAMS.indexOf(a[1].team)+9)%9-(TEAMS.indexOf(b[1].team)+9)%9||(a[1].order||0)-(b[1].order||0));
+  $('#roster').innerHTML='<thead><tr><th>팀</th><th>이름</th><th>출장 일정</th><th>근무조</th><th>메모</th></tr></thead><tbody>'+(ps.map(([pid,p])=>{
     const ts=trips().filter(([,t])=>t.pid===pid).sort((a,b)=>d2n(a[1].start)-d2n(b[1].start));
-    return `<tr><td><span class="chip">${esc(p.team||'기타')}</span></td><td><a href="#" data-open="people:${pid}" style="color:inherit">${esc(p.name)}</a></td><td class="mono">${ts.map(([,t])=>`${esc(t.loc||'')} ${mdy(t.start)}~${mdy(t.end)}${t.status==='미확정'?' (미확정)':''}`).join('<br>')||'<span class="muted">없음</span>'}</td><td>${esc(p.note||'')}</td></tr>`}).join('')||'<tr><td colspan="4" class="muted">등록된 인원이 없습니다.</td></tr>')+'</tbody>';
+    return `<tr><td><span class="chip">${esc(p.team||'기타')}</span></td><td><a href="#" data-open="people:${pid}" style="color:inherit">${esc(p.name)}</a></td><td class="mono">${ts.map(([,t])=>`${esc(t.loc||'')} ${mdy(t.start)}~${mdy(t.end)}${t.role&&t.role!==p.team?' ('+esc(t.role)+' 역할)':''}${t.status==='미확정'?' (미확정)':''}`).join('<br>')||'<span class="muted">없음</span>'}</td><td>${ts.map(([,t])=>esc(shiftText(t))).join('<br>')||''}</td><td>${esc(p.note||'')}</td></tr>`}).join('')||'<tr><td colspan="5" class="muted">등록된 인원이 없습니다.</td></tr>')+'</tbody>';
 }
 const nameCache={};
 function renderLog(){
@@ -568,6 +625,7 @@ function endDrag(e,cancel){
   const it=structuredClone(S.items.get(g.id));const before=structuredClone(it);
   const [s,en]=newRange(g,g.dd);
   if(it.kind==='lodging'&&it.occ){it.occ=it.occ.map(o=>{let a=d2n(o.from||it.start),b=d2n(o.to||it.end);if(g.mode==='m'){a+=g.dd;b+=g.dd}a=Math.max(a,s);b=Math.min(b,en);return {...o,from:n2d(a),to:n2d(Math.max(a,b))}})}
+  if(it.kind==='trip'&&it.shifts){const os=d2n(it.start);it.shifts=it.shifts.map((x,i)=>{let f=d2n(x.from);if(g.mode==='m')f+=g.dd;else if(i===0&&f===os)f=s;f=Math.min(Math.max(f,s),en-1);return {...x,from:n2d(f)}})}
   it.start=n2d(s);it.end=n2d(en);
   save('items',g.id,it,`${descr(before)} ${md(before.start)}~${md(before.end)} → ${md(it.start)}~${md(it.end)}`,before);
 }
@@ -603,14 +661,19 @@ function armDelete(p,fn){const b=p.querySelector('[data-del]');if(!b)return;b.on
 function openItem(id,preset){
   const isNew=!id;const it=isNew?Object.assign({kind:'trip',start:n2d(TODAY),end:n2d(TODAY+30),status:'확정',loc:locs()[0]||'오하이오'},preset||{}):structuredClone(S.items.get(id));
   if(!it)return;
+  if(it.kind==='trip'&&!(it.shifts&&it.shifts.length))it.shifts=[{from:it.start,s:''}];
   const people=[...S.people.entries()],res=[...S.res.entries()];
   const draw=()=>{
     const k=it.kind,stl=k==='trip'?ST.trip:k==='need'?[]:ST.con;
     let f=`<label class="fld">종류<select name="kind" ${dis()} ${isNew?'':'disabled'}>${Object.entries(KIND).map(([v,t])=>opt(v,t,k)).join('')}</select></label>`;
     if(k==='trip')f+=`<label class="fld">인원<select name="pid" ${dis()}>${people.map(([pid,p])=>opt(pid,p.name+' ('+(p.team||'기타')+')',it.pid)).join('')}</select></label>
       <div class="two"><label class="fld">지역<input name="loc" list="locList" value="${esc(it.loc||'')}" ${dis()}></label><label class="fld">현장 역할<select name="role" ${dis()}>${opt('','소속 팀 그대로',it.role||'')}${TEAMS.map(t=>opt(t,t+' 역할',it.role)).join('')}</select></label></div>
-      <label class="fld">입국 구분 <span class="muted">(체류 규칙 계산용)</span><select name="entry" ${dis()}>${opt('','자동 (첫 일정은 최초, 이후는 재입국)',it.entry||'')}${opt('first','최초 입국',it.entry)}${opt('re','재입국',it.entry)}</select></label>`;
-    if(k==='need')f+=`<div class="two"><label class="fld">지역<input name="loc" list="locList" value="${esc(it.loc||'')}" ${dis()}></label><label class="fld">필요 인원 (명)<input name="total" type="number" min="0" step="1" value="${esc(it.total??2)}" ${dis()}></label></div>`;
+      <label class="fld">입국 구분 <span class="muted">(체류 규칙 계산용)</span><select name="entry" ${dis()}>${opt('','자동 (첫 일정은 최초, 이후는 재입국)',it.entry||'')}${opt('first','최초 입국',it.entry)}${opt('re','재입국',it.entry)}</select></label>
+      <div class="fld">근무조 <span class="muted">(중간에 바뀌면 바뀌는 날부터 한 줄 더 추가)</span></div><div style="display:flex;flex-direction:column;gap:6px">${(it.shifts||[]).map((x,i)=>`<div class="shrow"><input type="date" data-si="${i}" data-sf="from" value="${esc(x.from||'')}" aria-label="적용 시작일" ${dis()}><select data-si="${i}" data-sf="s" aria-label="근무조" ${dis()}>${opt('','미정',x.s||'')}${opt('주간','주간',x.s)}${opt('야간','야간',x.s)}</select>${i>0&&editable()?`<button type="button" class="ghost" data-srm="${i}" aria-label="빼기">✕</button>`:'<span></span>'}</div>`).join('')}</div>${editable()?'<button type="button" data-sadd>+ 근무조 변경 추가</button>':''}`;
+    if(k==='need'){const rq=it.req||{},ri=(g,sh)=>`<input type="number" min="0" step="1" data-rq="${g}:${sh}" value="${esc(rq[g+':'+sh]??'')}" placeholder="-" aria-label="${GNAME[g]} ${sh}" ${dis()}>`;
+      f+=`<div class="two"><label class="fld">지역<input name="loc" list="locList" value="${esc(it.loc||'')}" ${dis()}></label><label class="fld">전체 필요 인원 (명)<input name="total" type="number" min="0" step="1" value="${esc(it.total??2)}" ${dis()}></label></div>
+      <div class="fld">팀별, 근무조별 필요 인원 <span class="muted">(비우면 따지지 않음)</span></div>
+      <div class="reqgrid"><span></span><span>주간</span><span>야간</span><span>팀 구분 없이</span>${ri('ALL','주간')}${ri('ALL','야간')}<span>SW</span>${ri('SW','주간')}${ri('SW','야간')}<span>CS (+HW)</span>${ri('CS','주간')}${ri('CS','야간')}</div>`}
     if(isCon(it)){const rs=res.filter(([,r])=>r.kind===k);
       f+=rs.length?`<label class="fld">${k==='car'?'차량':'숙소'}<select name="resId" ${dis()}>${rs.map(([rid,r])=>opt(rid,r.name+(r.loc?' ('+r.loc+')':''),it.resId)).join('')}</select></label>`:`<p class="err">먼저 + 숙소/차량으로 ${k==='car'?'차량':'숙소'}을 등록하세요.</p>`}
     f+=`<div class="two"><label class="fld">${k==='trip'?'도착(시작)':'시작'}<input type="date" name="start" value="${esc(it.start)}" ${dis()}></label><label class="fld">${k==='trip'?'출국(종료)':'종료'}<input type="date" name="end" value="${esc(it.end)}" ${dis()}></label></div>`;
@@ -636,14 +699,18 @@ function openItem(id,preset){
     if(fd.has('total'))it.total=Math.max(0,parseInt(fd.get('total'),10)||0);
     if(it.kind==='lodging')p.querySelectorAll('[data-oi]').forEach(el=>{const o=it.occ[+el.dataset.oi];if(o)o[el.dataset.of]=el.value});
     if(!it.role)delete it.role;if(!it.entry)delete it.entry;
+    if(it.kind==='trip'){p.querySelectorAll('[data-si]').forEach(el=>{const x=(it.shifts||[])[+el.dataset.si];if(x)x[el.dataset.sf]=el.value});it.shifts=(it.shifts||[]).filter(x=>x.from)}
+    if(it.kind==='need'){const rq={};p.querySelectorAll('[data-rq]').forEach(el=>{const v=parseInt(el.value,10);if(v>0)rq[el.dataset.rq]=v});it.req=rq}
   };
   const bind=p=>{
     p.querySelector('[data-close]').onclick=closePanel;
-    const kSel=p.querySelector('[name=kind]');if(kSel)kSel.onchange=()=>{read(p);it.kind=kSel.value;it.status=it.kind==='trip'?'확정':it.kind==='need'?undefined:'추가 요청';if(isCon(it)){const r=[...S.res.entries()].find(([,r])=>r.kind===it.kind);it.resId=r?r[0]:''}if(it.kind==='trip'&&!it.pid&&S.people.size)it.pid=[...S.people.keys()][0];draw()};
+    const kSel=p.querySelector('[name=kind]');if(kSel)kSel.onchange=()=>{read(p);it.kind=kSel.value;if(it.kind==='trip'&&!(it.shifts&&it.shifts.length))it.shifts=[{from:it.start,s:''}];it.status=it.kind==='trip'?'확정':it.kind==='need'?undefined:'추가 요청';if(isCon(it)){const r=[...S.res.entries()].find(([,r])=>r.kind===it.kind);it.resId=r?r[0]:''}if(it.kind==='trip'&&!it.pid&&S.people.size)it.pid=[...S.people.keys()][0];draw()};
     ['loc','pid','entry'].forEach(n=>{const el=p.querySelector(`[name=${n}]`);if(el&&it.kind==='trip')el.onchange=()=>{read(p);draw()}});
     const rSel=p.querySelector('[name=resId]');if(rSel)rSel.onchange=()=>{read(p);draw()};
-    ['start','end'].forEach(n=>{const el=p.querySelector(`[name=${n}]`);if(el)el.onchange=()=>{read(p);draw()}});
+    ['start','end'].forEach(n=>{const el=p.querySelector(`[name=${n}]`);if(el)el.onchange=()=>{const old=it.start;read(p);if(it.kind==='trip'&&it.shifts&&it.shifts[0]&&it.shifts[0].from===old)it.shifts[0].from=it.start;draw()}});
     p.querySelectorAll('[data-orm]').forEach(b=>b.onclick=()=>{read(p);it.occ.splice(+b.dataset.orm,1);draw()});
+    p.querySelectorAll('[data-srm]').forEach(b=>b.onclick=()=>{read(p);it.shifts.splice(+b.dataset.srm,1);draw()});
+    const sa=p.querySelector('[data-sadd]');if(sa)sa.onclick=()=>{read(p);const L=it.shifts||(it.shifts=[]);const last=L[L.length-1];L.push({from:last?n2d(Math.min(d2n(last.from)+7,d2n(it.end)-1)):it.start,s:last&&last.s==='주간'?'야간':last&&last.s==='야간'?'주간':''});draw()};
     const oa=p.querySelector('[data-oadd]');if(oa)oa.onclick=()=>{read(p);(it.occ=it.occ||[]).push({pid:[...S.people.keys()][0]||'',from:it.start,to:it.end});draw()};
     const nx=p.querySelector('[data-next]');if(nx)nx.onclick=()=>{
       const s=it.end,dt=new Date(d2n(s)*DAY);const e=n2d(Math.round(Date.UTC(dt.getUTCFullYear(),dt.getUTCMonth()+1,dt.getUTCDate())/DAY));
@@ -661,7 +728,7 @@ function openItem(id,preset){
       if((it.kind==='trip'||it.kind==='need')&&!it.loc)return bad('지역을 넣어 주세요.');
       if(it.kind==='lodging'&&(it.occ||[]).some(o=>o.from&&o.to&&d2n(o.to)<d2n(o.from)))return bad('거주 인원의 퇴실일이 입실일보다 빠릅니다.');
       const nid=id||uid();const before=id?S.items.get(id):null;
-      save('items',nid,JSON.parse(JSON.stringify(it)),isNew?`${descr(it)} ${md(it.start)}~${md(it.end)} 추가`:`${descr(it)} 수정 (${md(it.start)}~${md(it.end)})`+(before&&before.status!==it.status&&it.status?`, 상태 ${before.status||''} → ${it.status}`:''));
+      save('items',nid,JSON.parse(JSON.stringify(it)),isNew?`${descr(it)} ${md(it.start)}~${md(it.end)} 추가`:`${descr(it)} 수정 (${md(it.start)}~${md(it.end)})`+(before&&before.status!==it.status&&it.status?`, 상태 ${before.status||''} → ${it.status}`:'')+(before&&it.kind==='trip'&&shiftText(before)!==shiftText(it)?`, 근무조 ${shiftText(before)} → ${shiftText(it)}`:''));
       closePanel();toast(isNew?'추가했습니다':'저장했습니다')};
   };
   draw();
@@ -764,6 +831,7 @@ $('#bAddMark').onclick=needName(()=>openMark());
 $('#bUndo').onclick=undo;
 $('#bShowHidden').onclick=()=>{showHidden=!showHidden;renderAlerts()};
 $('#zoom').oninput=e=>{const c=sc.scrollLeft+sc.clientWidth/2-LABW(),day=c/ppd;ppd=+e.target.value;try{localStorage.setItem('fs.zoom',ppd)}catch(x){}renderBoard();sc.scrollLeft=day*ppd-sc.clientWidth/2+LABW()};
+$('#fGrp').onchange=e=>{grpFilter=e.target.value;try{localStorage.setItem('fs.grp',grpFilter)}catch(x){}render()};
 $('#fLoc').onchange=e=>{locFilter=e.target.value;try{localStorage.setItem('fs.loc',locFilter)}catch(x){}render()};
 $('#bToday').onclick=()=>{const[lo]=bounds();sc.scrollTo({left:Math.max(0,(TODAY-lo)*ppd-ppd*14),behavior:'smooth'})};
 $('#bDrag').onclick=()=>{dragOn=!dragOn;try{localStorage.setItem('fs.drag',dragOn?'1':'0')}catch(x){}renderFilter();renderBoard()};
@@ -776,11 +844,11 @@ function summary(){
   L.push(n+++'. 출장 인원');
   let ti=0;TEAMS.forEach(t=>{const ps=[...S.people.entries()].filter(([,p])=>(p.team||'기타')===t);if(!ps.length)return;
     L.push(circ[ti++]+' '+t);
-    ps.forEach(([pid,p])=>{const ts=trips().filter(([,x])=>x.pid===pid).sort((a,b)=>d2n(a[1].start)-d2n(b[1].start));L.push('- '+p.name+': '+(ts.map(([,x])=>`${x.loc} ${mdy(x.start)}~${mdy(x.end)}${x.role&&x.role!==p.team?' ('+x.role+' 역할)':''}${x.status==='미확정'?' (미확정)':''}`).join(', ')||'일정 없음'))})});
+    ps.forEach(([pid,p])=>{const ts=trips().filter(([,x])=>x.pid===pid).sort((a,b)=>d2n(a[1].start)-d2n(b[1].start));L.push('- '+p.name+': '+(ts.map(([,x])=>`${x.loc} ${mdy(x.start)}~${mdy(x.end)}${x.role&&x.role!==p.team?' ('+x.role+' 역할)':''} ${shiftText(x)}${x.status==='미확정'?' (미확정)':''}`).join(', ')||'일정 없음'))})});
   const ms=[...S.marks.values()].sort((a,b)=>d2n(a.date)-d2n(b.date));
   if(ms.length){L.push('',n+++'. 기준일');ms.forEach(m=>L.push('- '+(m.loc?m.loc+' ':'')+m.label+' '+mdy(m.date)))}
   const needs=[...S.items.values()].filter(i=>i.kind==='need').sort((a,b)=>d2n(a.start)-d2n(b.start));
-  if(needs.length){L.push('',n+++'. 현장 요구 인원');needs.forEach(x=>L.push('- '+x.loc+' '+mdy(x.start)+'~'+mdy(x.end)+' '+x.total+'명'+(x.label?' ('+x.label+')':'')))}
+  if(needs.length){L.push('',n+++'. 현장 요구 인원');needs.forEach(x=>{const r=Object.entries(x.req||{}).map(([k,v])=>{const[g,sh]=k.split(':');return (g==='ALL'?'':GNAME[g]+' ')+sh+' '+v+'명'}).join(', ');L.push('- '+x.loc+' '+mdy(x.start)+'~'+mdy(x.end)+' '+x.total+'명'+(r?' ('+r+')':'')+(x.label?' / '+x.label:''))})}
   [['lodging','숙소'],['car','렌트카']].forEach(([k,t])=>{const rs=[...S.res.entries()].filter(([,r])=>r.kind===k);if(!rs.length)return;
     L.push('',n+++'. '+t);
     rs.forEach(([rid,r],i)=>{L.push(circ[i]+' '+r.name+(k==='lodging'&&r.cap?' (정원 '+r.cap+'명)':''));
@@ -792,9 +860,9 @@ function summary(){
 $('#bCopy').onclick=async()=>{const t=summary();try{await navigator.clipboard.writeText(t);toast('요약을 복사했습니다. 메일이나 메신저에 붙여 넣으세요.')}catch(e){openPanel(head('요약')+`<p class="muted">자동 복사가 막혀 있어 아래 글을 직접 복사해 주세요.</p><textarea style="width:100%;min-height:60vh" readonly>${esc(t)}</textarea>`,p=>{p.querySelector('[data-close]').onclick=closePanel;const ta=p.querySelector('textarea');ta.focus();ta.select()})}};
 function csv(){
   const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
-  const rows=[['구분','대상','지역','시작','종료','일수','상태','거주 인원','표시 문구','메모']];
-  [...S.items.values()].sort((a,b)=>(a.kind>b.kind?1:-1)||d2n(a.start)-d2n(b.start)).forEach(i=>rows.push([KIND[i.kind],i.kind==='trip'?pName(i.pid):isCon(i)?rName(i.resId):'',itemLoc(i),i.start,i.end,d2n(i.end)-d2n(i.start),i.status||'',(i.occ||[]).map(o=>pName(o.pid)+' '+(o.from||i.start)+'~'+(o.to||i.end)).join('; '),i.label||'',i.note||'']));
-  [...S.marks.values()].forEach(m=>rows.push(['기준일',m.label,m.loc||'',m.date,m.date,0,'','','',m.note||'']));
+  const rows=[['구분','대상','지역','시작','종료','일수','상태','근무조','거주 인원','표시 문구','메모']];
+  [...S.items.values()].sort((a,b)=>(a.kind>b.kind?1:-1)||d2n(a.start)-d2n(b.start)).forEach(i=>rows.push([KIND[i.kind],i.kind==='trip'?pName(i.pid):isCon(i)?rName(i.resId):'',itemLoc(i),i.start,i.end,d2n(i.end)-d2n(i.start),i.status||'',i.kind==='trip'?shiftText(i):'',(i.occ||[]).map(o=>pName(o.pid)+' '+(o.from||i.start)+'~'+(o.to||i.end)).join('; '),i.label||'',i.note||'']));
+  [...S.marks.values()].forEach(m=>rows.push(['기준일',m.label,m.loc||'',m.date,m.date,0,'','','','',m.note||'']));
   return '﻿'+rows.map(r=>r.map(q).join(',')).join('\r\n');
 }
 function saveFile(name,text,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500)}
