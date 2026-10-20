@@ -256,7 +256,7 @@ const now=new Date();const TODAY=Math.round(Date.UTC(now.getFullYear(),now.getMo
 const uid=()=>'x'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 const WD=['일','월','화','수','목','금','토'];
 
-const TEAMS=['SW','CS','HW','기타'];
+const TEAMS=['SW','CS','HW','영업'];
 const ST={trip:['확정','미확정'],con:['기존 계약','예약 완료','추가 요청','검토']};
 const KIND={trip:'출장',lodging:'숙소 계약',car:'렌트카 계약',need:'현장 요구 인원'};
 
@@ -326,10 +326,10 @@ function locClass(l){return l==='오하이오'?'ohio':l==='애리조나'?'az':'o
 function trips(){return [...S.items.entries()].filter(([,i])=>i.kind==='trip')}
 function onSite(loc,day){const out=[];trips().forEach(([,t])=>{if(t.loc===loc&&d2n(t.start)<=day&&day<d2n(t.end))out.push(t)});return out}
 const GROUPS=[['SW','SW'],['CS','CS (+HW)']];
-const GNAME={SW:'SW',CS:'CS (+HW)',ETC:'기타',ALL:'전체'};
+const GNAME={SW:'SW',CS:'CS (+HW)',ETC:'영업',ALL:'전체'};
 const teamGroup=t=>t==='SW'?'SW':(t==='CS'||t==='HW')?'CS':'ETC';
-function groupOf(t){return teamGroup(t.role||(S.people.get(t.pid)||{}).team||'기타')}
-function personGroups(pid){const g=new Set([teamGroup((S.people.get(pid)||{}).team||'기타')]);trips().forEach(([,t])=>{if(t.pid===pid)g.add(groupOf(t))});return g}
+function groupOf(t){return teamGroup(t.role||(S.people.get(t.pid)||{}).team||'영업')}
+function personGroups(pid){const g=new Set([teamGroup((S.people.get(pid)||{}).team||'영업')]);trips().forEach(([,t])=>{if(t.pid===pid)g.add(groupOf(t))});return g}
 function shiftList(t){return (t.shifts||[]).filter(x=>x&&x.from).slice().sort((a,b)=>d2n(a.from)-d2n(b.from))}
 function shiftOn(t,day){let cur='';shiftList(t).forEach(x=>{if(d2n(x.from)<=day)cur=x.s||''});return cur||'미정'}
 function shiftText(t){const L=shiftList(t).filter(x=>x.s);if(!L.length)return '근무조 미정';
@@ -504,9 +504,9 @@ function renderBoard(){
   if(!people.length&&!S.items.size){sc.innerHTML=`<div class="empty">아직 등록된 일정이 없습니다. 위의 + 인원으로 사람부터 추가하세요.</div>`;return}
   let teamPrev=null;
   h+=sec('출장 인원');
-  [['SW','SW'],['CS','CS (+HW)'],['ETC','기타']].forEach(([g,gt])=>{
+  [['SW','SW'],['CS','CS (+HW)'],['ETC','영업']].forEach(([g,gt])=>{
     if(grpFilter&&g!==grpFilter)return;
-    const list=people.filter(([pid,p])=>{const home=teamGroup(p.team||'기타');const ts=trips().filter(([,t])=>t.pid===pid&&inLoc(t.loc));
+    const list=people.filter(([pid,p])=>{const home=teamGroup(p.team||'영업');const ts=trips().filter(([,t])=>t.pid===pid&&inLoc(t.loc));
       if(locFilter&&!ts.length)return false;
       return grpFilter?personGroups(pid).has(g):home===g});
     if(!list.length)return;
@@ -515,7 +515,7 @@ function renderBoard(){
       const ts=trips().filter(([,t])=>t.pid===pid&&inLoc(t.loc));
       let inner=ts.map(([id,t])=>bar(id,t,5,24)).join('');
       if(!ts.length)inner=`<span class="muted" style="position:absolute;left:8px;top:7px;font-size:12px">일정 없음</span>`;
-      h+=row(`<span class="chip">${esc(p.team||'기타')}</span><span class="nm" data-open="people:${pid}">${esc(p.name)}</span>`,inner,34);
+      h+=row(`<span class="chip">${esc(p.team||'영업')}</span><span class="nm" data-open="people:${pid}">${esc(p.name)}</span>`,inner,34);
     });
   });
   // needs + coverage
@@ -590,7 +590,7 @@ function renderRoster(){
   const ps=[...S.people.entries()].filter(([pid])=>!grpFilter||personGroups(pid).has(grpFilter)).sort((a,b)=>(TEAMS.indexOf(a[1].team)+9)%9-(TEAMS.indexOf(b[1].team)+9)%9||(a[1].order||0)-(b[1].order||0));
   $('#roster').innerHTML='<thead><tr><th>팀</th><th>이름</th><th>출장 일정</th><th>근무조</th><th>메모</th></tr></thead><tbody>'+(ps.map(([pid,p])=>{
     const ts=trips().filter(([,t])=>t.pid===pid).sort((a,b)=>d2n(a[1].start)-d2n(b[1].start));
-    return `<tr><td><span class="chip">${esc(p.team||'기타')}</span></td><td><a href="#" data-open="people:${pid}" style="color:inherit">${esc(p.name)}</a></td><td class="mono">${ts.map(([,t])=>`${esc(t.loc||'')} ${mdy(t.start)}~${mdy(t.end)}${t.role&&t.role!==p.team?' ('+esc(t.role)+' 역할)':''}${t.status==='미확정'?' (미확정)':''}`).join('<br>')||'<span class="muted">없음</span>'}</td><td>${ts.map(([,t])=>esc(shiftText(t))).join('<br>')||''}</td><td>${esc(p.note||'')}</td></tr>`}).join('')||'<tr><td colspan="5" class="muted">등록된 인원이 없습니다.</td></tr>')+'</tbody>';
+    return `<tr><td><span class="chip">${esc(p.team||'영업')}</span></td><td><a href="#" data-open="people:${pid}" style="color:inherit">${esc(p.name)}</a></td><td class="mono">${ts.map(([,t])=>`${esc(t.loc||'')} ${mdy(t.start)}~${mdy(t.end)}${t.role&&t.role!==p.team?' ('+esc(t.role)+' 역할)':''}${t.status==='미확정'?' (미확정)':''}`).join('<br>')||'<span class="muted">없음</span>'}</td><td>${ts.map(([,t])=>esc(shiftText(t))).join('<br>')||''}</td><td>${esc(p.note||'')}</td></tr>`}).join('')||'<tr><td colspan="5" class="muted">등록된 인원이 없습니다.</td></tr>')+'</tbody>';
 }
 const nameCache={};
 function renderLog(){
@@ -666,7 +666,7 @@ function openItem(id,preset){
   const draw=()=>{
     const k=it.kind,stl=k==='trip'?ST.trip:k==='need'?[]:ST.con;
     let f=`<label class="fld">종류<select name="kind" ${dis()} ${isNew?'':'disabled'}>${Object.entries(KIND).map(([v,t])=>opt(v,t,k)).join('')}</select></label>`;
-    if(k==='trip')f+=`<label class="fld">인원<select name="pid" ${dis()}>${people.map(([pid,p])=>opt(pid,p.name+' ('+(p.team||'기타')+')',it.pid)).join('')}</select></label>
+    if(k==='trip')f+=`<label class="fld">인원<select name="pid" ${dis()}>${people.map(([pid,p])=>opt(pid,p.name+' ('+(p.team||'영업')+')',it.pid)).join('')}</select></label>
       <div class="two"><label class="fld">지역<input name="loc" list="locList" value="${esc(it.loc||'')}" ${dis()}></label><label class="fld">현장 역할<select name="role" ${dis()}>${opt('','소속 팀 그대로',it.role||'')}${TEAMS.map(t=>opt(t,t+' 역할',it.role)).join('')}</select></label></div>
       <label class="fld">입국 구분 <span class="muted">(체류 규칙 계산용)</span><select name="entry" ${dis()}>${opt('','자동 (첫 일정은 최초, 이후는 재입국)',it.entry||'')}${opt('first','최초 입국',it.entry)}${opt('re','재입국',it.entry)}</select></label>
       <div class="fld">근무조 <span class="muted">(중간에 바뀌면 바뀌는 날부터 한 줄 더 추가)</span></div><div style="display:flex;flex-direction:column;gap:6px">${(it.shifts||[]).map((x,i)=>`<div class="shrow"><input type="date" data-si="${i}" data-sf="from" value="${esc(x.from||'')}" aria-label="적용 시작일" ${dis()}><select data-si="${i}" data-sf="s" aria-label="근무조" ${dis()}>${opt('','미정',x.s||'')}${opt('주간','주간',x.s)}${opt('야간','야간',x.s)}</select>${i>0&&editable()?`<button type="button" class="ghost" data-srm="${i}" aria-label="빼기">✕</button>`:'<span></span>'}</div>`).join('')}</div>${editable()?'<button type="button" data-sadd>+ 근무조 변경 추가</button>':''}`;
@@ -842,7 +842,7 @@ function summary(){
   const L=[];let n=1;const circ='①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮';
   L.push('세방 미국 현장 일정 ('+md(n2d(TODAY))+' 기준)','');
   L.push(n+++'. 출장 인원');
-  let ti=0;TEAMS.forEach(t=>{const ps=[...S.people.entries()].filter(([,p])=>(p.team||'기타')===t);if(!ps.length)return;
+  let ti=0;TEAMS.forEach(t=>{const ps=[...S.people.entries()].filter(([,p])=>(p.team||'영업')===t);if(!ps.length)return;
     L.push(circ[ti++]+' '+t);
     ps.forEach(([pid,p])=>{const ts=trips().filter(([,x])=>x.pid===pid).sort((a,b)=>d2n(a[1].start)-d2n(b[1].start));L.push('- '+p.name+': '+(ts.map(([,x])=>`${x.loc} ${mdy(x.start)}~${mdy(x.end)}${x.role&&x.role!==p.team?' ('+x.role+' 역할)':''} ${shiftText(x)}${x.status==='미확정'?' (미확정)':''}`).join(', ')||'일정 없음'))})});
   const ms=[...S.marks.values()].sort((a,b)=>d2n(a.date)-d2n(b.date));
